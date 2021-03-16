@@ -1,0 +1,299 @@
+安装openstack
+
+以root用户身份运行命令或配置sudo 实用程序。
+当服务使用SysV Init脚本而不是本机systemd文件时，对openSUSE的systemctl enable调用将输出警告消息。此警告可以忽略。
+
+以下最低要求应支持带有核心服务和几个CirrOS实例的概念验证环境：
+控制器节点：1个处理器，4 GB内存和5 GB存储
+计算节点：1个处理器，2 GB内存和10 GB存储空间
+
+配置网络接口
+1.将第一个接口配置为管理接口：
+IP地址：10.0.0.11
+网络掩码：255.255.255.0
+默认网关：10.0.0.1
+
+2.提供程序接口使用特殊的配置，但未分配IP地址。将第二个接口配置为提供者接口：
+编辑/etc/sysconfig/network-scripts/ifcfg-INTERFACE_NAME文件以包含以下内容：
+请勿更改HWADDR和UUID键。
+DEVICE=INTERFACE_NAME
+TYPE=Ethernet
+ONBOOT="yes"
+BOOTPROTO="none"
+
+3.配置名称解析
+将节点的主机名设置为controller。
+编辑/etc/hosts文件以包含以下内容：
+# controller
+10.0.0.11       controller
+
+# compute1
+10.0.0.31       compute1
+
+# block1
+10.0.0.41       block1
+
+# object1
+10.0.0.51       object1
+
+# object2
+10.0.0.52       object2
+
+4.验证连接性
+在控制器节点上，测试对Internet的访问：
+# ping -c 4 docs.openstack.org
+PING files02.openstack.org (23.253.125.17) 56(84) bytes of data.
+64 bytes from files02.openstack.org (23.253.125.17): icmp_seq=1 ttl=43 time=125 ms
+64 bytes from files02.openstack.org (23.253.125.17): icmp_seq=2 ttl=43 time=125 ms
+64 bytes from files02.openstack.org (23.253.125.17): icmp_seq=3 ttl=43 time=125 ms
+64 bytes from files02.openstack.org (23.253.125.17): icmp_seq=4 ttl=43 time=125 ms
+
+
+--- files02.openstack.org ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 3004ms
+rtt min/avg/max/mdev = 125.192/125.282/125.399/0.441 ms
+
+在控制器节点上，测试对计算节点上管理接口的访问 ：
+# ping -c 4 compute1
+
+PING compute1 (10.0.0.31) 56(84) bytes of data.
+64 bytes from compute1 (10.0.0.31): icmp_seq=1 ttl=64 time=0.263 ms
+64 bytes from compute1 (10.0.0.31): icmp_seq=2 ttl=64 time=0.202 ms
+64 bytes from compute1 (10.0.0.31): icmp_seq=3 ttl=64 time=0.203 ms
+64 bytes from compute1 (10.0.0.31): icmp_seq=4 ttl=64 time=0.202 ms
+
+--- compute1 ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 3000ms
+rtt min/avg/max/mdev = 0.202/0.217/0.263/0.030 ms
+
+在计算节点上，测试对Internet的访问：
+
+# ping -c 4 openstack.org
+
+PING openstack.org (174.143.194.225) 56(84) bytes of data.
+64 bytes from 174.143.194.225: icmp_seq=1 ttl=54 time=18.3 ms
+64 bytes from 174.143.194.225: icmp_seq=2 ttl=54 time=17.5 ms
+64 bytes from 174.143.194.225: icmp_seq=3 ttl=54 time=17.5 ms
+64 bytes from 174.143.194.225: icmp_seq=4 ttl=54 time=17.4 ms
+
+--- openstack.org ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 3022ms
+rtt min/avg/max/mdev = 17.489/17.715/18.346/0.364 ms
+
+在计算节点上，测试对控制器节点上的管理接口的访问 ：
+
+# ping -c 4 controller
+
+PING controller (10.0.0.11) 56(84) bytes of data.
+64 bytes from controller (10.0.0.11): icmp_seq=1 ttl=64 time=0.263 ms
+64 bytes from controller (10.0.0.11): icmp_seq=2 ttl=64 time=0.202 ms
+64 bytes from controller (10.0.0.11): icmp_seq=3 ttl=64 time=0.203 ms
+64 bytes from controller (10.0.0.11): icmp_seq=4 ttl=64 time=0.202 ms
+
+--- controller ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 3000ms
+rtt min/avg/max/mdev = 0.202/0.217/0.263/0.030 ms
+
+5.控制器节点
+安装软件包：
+# yum install chrony
+
+编辑chrony.conf文件，并根据您的环境添加，更改或删除以下项。
+编辑/etc/chrony.conf文件：
+server NTP_SERVER iburst
+
+要使其他节点能够连接到控制器节点上的chrony守护程序，请将此密钥添加到上述相同的chrony.conf文件中：
+allow 10.0.0.0/24
+
+重新启动NTP服务：
+# systemctl enable chronyd.service
+# systemctl start chronyd.service
+
+6.验证操作
+在控制器节点上运行以下命令：
+# chronyc sources
+
+  210 Number of sources = 2
+  MS Name/IP address         Stratum Poll Reach LastRx Last sample
+  ===============================================================================
+  ^- 192.0.2.11                    2   7    12   137  -2814us[-3000us] +/-   43ms
+  ^* 192.0.2.12                    2   6   177    46    +17us[  -23us] +/-   68ms
+
+ 在所有其他节点上运行相同的命令：
+# chronyc sources
+
+  210 Number of sources = 1
+  MS Name/IP address         Stratum Poll Reach LastRx Last sample
+  ===============================================================================
+  ^* controller                    3    9   377   421    +15us[  -87us] +/-   15ms
+  
+7.启用OpenStack存储库
+在适用于OpenStack Ussuri的openSUSE上：
+# zypper addrepo -f obs://Cloud:OpenStack:Ussuri/openSUSE_Leap_15.1 Ussuri
+
+在适用于OpenStack Train的openSUSE上：
+# zypper addrepo -f obs://Cloud:OpenStack:Train/openSUSE_Leap_15.0 Train
+
+在用于OpenStack Stein的openSUSE上：
+# zypper addrepo -f obs://Cloud:OpenStack:Stein/openSUSE_Leap_15.0 Stein
+
+在适用于OpenStack Rocky的openSUSE上：
+# zypper addrepo -f obs://Cloud:OpenStack:Rocky/openSUSE_Leap_15.0 Rocky
+
+在适用于OpenStack Queens的openSUSE上：
+# zypper addrepo -f obs://Cloud:OpenStack:Queens/openSUSE_Leap_42.3 Queens
+
+在适用于OpenStack Pike的openSUSE上：
+# zypper addrepo -f obs://Cloud:OpenStack:Pike/openSUSE_Leap_42.3 Pike
+
+openSUSE发行版使用模式的概念来表示软件包的集合。如果在初始安装过程中选择了“最小服务器选择（文本模式）”，则在尝试安装OpenStack软件包时可能会出现依赖性冲突。为了避免这种情况，请删除minimum_base-conflicts程序包：
+# zypper rm patterns-openSUSE-minimal_base-conflicts
+
+在适用于OpenStack Ussuri的SLES上：
+# zypper addrepo -f obs://Cloud:OpenStack:Ussuri/SLE_15_SP2 Ussuri
+
+在适用于OpenStack Train的SLES上：
+# zypper addrepo -f obs://Cloud:OpenStack:Train/SLE_15_SP1 Train
+
+在OpenStack Stein的SLES上：
+# zypper addrepo -f obs://Cloud:OpenStack:Stein/SLE_15 Stein
+
+在SLES for OpenStack Rocky上：
+# zypper addrepo -f obs://Cloud:OpenStack:Rocky/SLE_12_SP4 Rocky
+
+在适用于OpenStack Queens的SLES上：
+# zypper addrepo -f obs://Cloud:OpenStack:Queens/SLE_12_SP3 Queens
+
+在SLES for OpenStack Pike上：
+# zypper addrepo -f obs://Cloud:OpenStack:Pike/SLE_12_SP3 Pike
+
+软件包由GPG密钥签名D85F9316。使用前，您应该验证导入的GPG密钥的指纹。
+Key Name:         Cloud:OpenStack OBS Project <Cloud:OpenStack@build.opensuse.org>
+Key Fingerprint:  35B34E18 ABC1076D 66D5A86B 893A90DA D85F9316
+Key Created:      2015-12-16T16:48:37 CET
+Key Expires:      2018-02-23T16:48:37 CET
+
+8.完成安装
+在所有节点上升级软件包：
+# zypper refresh && zypper dist-upgrade
+
+安装OpenStack客户端：
+# zypper install python-openstackclient
+
+9.启用OpenStack存储库
+安装Ussuri发行版时，运行：
+# yum install centos-release-openstack-ussuri
+# yum config-manager --set-enabled PowerTools
+
+安装Train版本时，请运行：
+# yum install centos-release-openstack-train
+
+安装Stein版本时，运行：
+# yum install centos-release-openstack-stein
+
+安装Rocky版本时，运行：
+# yum install centos-release-openstack-rocky
+
+安装Queens版本时，运行：
+# yum install centos-release-openstack-queens
+
+安装Pike版本时，请运行：
+# yum install centos-release-openstack-pike
+在RHEL上，下载并安装RDO存储库RPM以启用OpenStack存储库。
+
+在RHEL 7上：
+# yum install https://rdoproject.org/repos/rdo-release.rpm
+
+在RHEL 8上：
+# dnf install https://www.rdoproject.org/repos/rdo-release.el8.rpm
+RDO存储库RPM安装了最新的可用OpenStack版本。
+
+完成安装
+在所有节点上升级软件包：
+# yum upgrade
+
+为您的版本安装适当的OpenStack客户端。
+# yum install python-openstackclient
+
+RHEL和CentOS默认情况下启用SELinux。安装 openstack-selinux软件包以自动管理OpenStack服务的安全策略：
+# yum install openstack-selinux
+
+10.SQL数据库
+安装软件包：
+# yum install mariadb mariadb-server python2-PyMySQL
+
+创建和编辑/etc/my.cnf.d/openstack.cnf文件（/etc/my.cnf.d/如果需要，请备份现有配置文件）并完成以下操作：
+创建一个[mysqld]部分，并将bind-address 密钥设置为控制器节点的管理IP地址，以允许其他节点通过管理网络进行访问。设置其他键以启用有用的选项和UTF-8字符集：
+[mysqld]
+bind-address = 10.0.0.11
+default-storage-engine = innodb
+innodb_file_per_table = on
+max_connections = 4096
+collation-server = utf8_general_ci
+character-set-server = utf8
+
+最终确定安装
+启动数据库服务，并将其配置为在系统引导时启动：
+# systemctl enable mariadb.service
+# systemctl start mariadb.service
+
+通过运行mysql_secure_installation 脚本来保护数据库服务。特别是，为数据库root帐户选择合适的密码 ：
+# mysql_secure_installation
+
+11.消息队列
+安装软件包：
+# yum install rabbitmq-server
+
+启动消息队列服务，并将其配置为在系统引导时启动：
+# systemctl enable rabbitmq-server.service
+# systemctl start rabbitmq-server.service
+
+添加openstack用户：
+# rabbitmqctl add_user openstack RABBIT_PASS
+Creating user "openstack" ...
+
+替换RABBIT_PASS为合适的密码。
+允许用户配置，写入和读取访问权限 openstack：
+# rabbitmqctl set_permissions openstack ".*" ".*" ".*"
+Setting permissions for user "openstack" in vhost "/" ...
+
+12.Memcached
+安装软件包：
+对于CentOS 7和RHEL 7
+# yum install memcached python-memcached
+
+对于CentOS 8和RHEL 8
+# yum install memcached python3-memcached
+
+编辑/etc/sysconfig/memcached文件并完成以下操作：
+配置服务以使用控制器节点的管理IP地址。这是为了允许其他节点通过管理网络进行访问：
+OPTIONS="-l 127.0.0.1,::1,controller"
+
+最终确定安装
+启动Memcached服务，并将其配置为在系统启动时启动：
+# systemctl enable memcached.service
+# systemctl start memcached.service
+
+13.Etcd
+安装软件包：
+# yum install etcd
+
+编辑/etc/etcd/etcd.conf文件，并设置ETCD_INITIAL_CLUSTER， ETCD_INITIAL_ADVERTISE_PEER_URLS，ETCD_ADVERTISE_CLIENT_URLS， ETCD_LISTEN_CLIENT_URLS控制器节点，以使经由管理网络通过其他节点的访问的管理IP地址：
+#[Member]
+ETCD_DATA_DIR="/var/lib/etcd/default.etcd"
+ETCD_LISTEN_PEER_URLS="http://10.0.0.11:2380"
+ETCD_LISTEN_CLIENT_URLS="http://10.0.0.11:2379"
+ETCD_NAME="controller"
+#[Clustering]
+ETCD_INITIAL_ADVERTISE_PEER_URLS="http://10.0.0.11:2380"
+ETCD_ADVERTISE_CLIENT_URLS="http://10.0.0.11:2379"
+ETCD_INITIAL_CLUSTER="controller=http://10.0.0.11:2380"
+ETCD_INITIAL_CLUSTER_TOKEN="etcd-cluster-01"
+ETCD_INITIAL_CLUSTER_STATE="new"
+
+最终确定安装
+启用并启动etcd服务：
+# systemctl enable etcd
+# systemctl start etcd
+
+
